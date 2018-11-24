@@ -1,0 +1,15 @@
+[package]
+name = "rusty-puppet"
+version = "0.1.0"
+authors = ["Espen Henriksen <dev@henriksen.is>"]
+edition = "2018"
+build = "build.rs"
+
+[dependencies]
+log = "0.4.6"
+futures-preview = "0.3.0-alpha.9"
+
+[build-dependencies]
+lazy_static = "1.2.0"
+reqwest = "0.9.5"
+zip = "0.5.0"
