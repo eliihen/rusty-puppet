@@ -1,4 +1,7 @@
 use crate::browser::Browser;
+use std::env;
+use std::path::Path;
+use std::process::Command;
 
 const DEFAULT_ARGS: [&'static str; 22] = [
   "--disable-background-networking",
@@ -101,14 +104,18 @@ impl Launcher {
 
     pub async fn launch<'a>(&'a self, options: &'a LaunchOptions) -> Browser {
 
+        let mut chrome_arguments: Vec<String> = options.args
+            .clone()
+            .append(&mut DEFAULT_ARGS.clone());
+
         // Ensure remote debugging argument is set
-        let mut chrome_arguments = options.args.clone();
         if !has("--remote-debugging", &chrome_arguments) {
           let debug_argument = if options.pipe {
               String::from("--remote-debugging-pipe")
           } else {
               String::from("--remote-debugging-port=0")
           };
+          info!("Debug argument set: {}", &debug_argument);
           chrome_arguments.push(debug_argument);
         }
 
@@ -127,37 +134,56 @@ impl Launcher {
         // Get executable
         let mut chrome_executable = options.executable_path.clone();
         if chrome_executable.is_none() {
-          //chrome_executable = self.resolve_executable_path();
+          let path = self.resolve_executable_path();
+          info!("Executable located: {}", &path);
+          chrome_executable = Some(path);
+
           //const {missingText, executablePath} = this._resolveExecutablePath();
           //if (missingText)
           //  throw new Error(missingText);
           //chromeExecutable = executablePath;
         }
 
+        let mut child = Command::new(&chrome_executable.unwrap())
+                        .args(&chrome_arguments)
+                        .envs(&options.env)
+                        .spawn()
+                        .expect("failed to execute child");
+
+        let ecode = child.wait()
+                 .expect("failed to wait on child");
+
+
         Browser {}
     }
 
-    /*
-    fn resolveExecutablePath(&self) -> String {
-        let browserFetcher = BrowserFetcher::new(self.project_root);
+    fn resolve_executable_path(&self) -> String {
+        let out_dir = env::var("OUT_DIR").unwrap();
+        let chrome_path = Path::new(&out_dir).join("chrome");
+
+        if !chrome_path.exists() {
+            panic!("Chromium revision is not downloaded. Run cargo clean and recompile");
+        }
 
         // puppeteer-core doesn't take into account PUPPETEER_* env variables.
-        if (!this._isPuppeteerCore) {
-          const executablePath = process.env['PUPPETEER_EXECUTABLE_PATH'];
-          if (executablePath) {
-            const missingText = !fs.existsSync(executablePath) ? 'Tried to use PUPPETEER_EXECUTABLE_PATH env variable to launch browser but did not find any executable at: ' + executablePath : null;
-            return { executablePath, missingText };
-          }
-          const revision = process.env['PUPPETEER_CHROMIUM_REVISION'];
-          if (revision) {
-            const revisionInfo = browserFetcher.revisionInfo(revision);
-            const missingText = !revisionInfo.local ? 'Tried to use PUPPETEER_CHROMIUM_REVISION env variable to launch browser but did not find executable at: ' + revisionInfo.executablePath : null;
-            return {executablePath: revisionInfo.executablePath, missingText};
-          }
-        }
-        const revisionInfo = browserFetcher.revisionInfo(this._preferredRevision);
-        const missingText = !revisionInfo.local ? `Chromium revision is not downloaded. Run "npm install" or "yarn install"` : null;
-        return {executablePath: revisionInfo.executablePath, missingText};
+        //if (!this._isPuppeteerCore) {
+        //  const executablePath = process.env['PUPPETEER_EXECUTABLE_PATH'];
+        //  if (executablePath) {
+        //    const missingText = !fs.existsSync(executablePath) ? 'Tried to use PUPPETEER_EXECUTABLE_PATH env variable to launch browser but did not find any executable at: ' + executablePath : null;
+        //    return { executablePath, missingText };
+        //  }
+        //  const revision = process.env['PUPPETEER_CHROMIUM_REVISION'];
+        //  if (revision) {
+        //    const revisionInfo = browserFetcher.revisionInfo(revision);
+        //    const missingText = !revisionInfo.local ? 'Tried to use PUPPETEER_CHROMIUM_REVISION env variable to launch browser but did not find executable at: ' + revisionInfo.executablePath : null;
+        //    return {executablePath: revisionInfo.executablePath, missingText};
+        //  }
+        //}
+
+        chrome_path
+            .join("chrome")
+            .to_str()
+            .expect("Failed to unwrap path to chrome executable")
+            .to_string()
     }
-    */
 }

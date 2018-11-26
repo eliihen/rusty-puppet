@@ -1,6 +1,6 @@
 #![feature(futures_api, async_await, await_macro)]
-// #[macro_use]
-// extern crate log;
+#[macro_use]
+extern crate log;
 extern crate futures;
 
 pub mod handle;

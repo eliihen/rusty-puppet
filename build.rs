@@ -100,8 +100,9 @@ fn extract_archive(file: &mut File, outpath: &Path) {
 fn download(dest_path: &Path) {
     let zip_path = &dest_path.join("chrome.zip");
     let extract_dir = &dest_path.join(FILE_NAME);
+    let target_dir = &dest_path.join("chrome");
 
-    if !zip_path.exists() {
+    if !target_dir.exists() {
         println!("Downloading chrome archive");
 
         let mut file = File::create(&zip_path).unwrap();
@@ -113,13 +114,22 @@ fn download(dest_path: &Path) {
             .expect("Failed to write downloaded binary");
         file.write_all(&buf)
             .expect("Failed to write downloaded binary");
+        println!("Done! Archive is now at {}", &zip_path.display());
     }
 
-    if !extract_dir.exists() {
+    if !target_dir.exists() {
         println!("Extracting chrome archive");
         let mut file = File::open(&zip_path)
             .expect("Failed to open archive for reading");
         extract_archive(&mut file, &dest_path);
+
+        println!("Deleting archive at {} to clean up", &zip_path.display());
+        fs::remove_file(&zip_path)
+            .expect("Failed to clean up archive");
+
+        println!("Renaming result to {}", &target_dir.display());
+        fs::rename(&extract_dir, &target_dir)
+            .expect("Failed to rename extracted chrome directory");
     }
 
     println!("Chrome downloaded to {}", &extract_dir.display());
