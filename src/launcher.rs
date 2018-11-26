@@ -1,7 +1,12 @@
 use crate::browser::Browser;
 use std::env;
 use std::path::Path;
+use std::collections::HashMap;
 use std::process::Command;
+use rand::Rng;
+use rand::distributions::Alphanumeric;
+use rand;
+use std::fs;
 
 const DEFAULT_ARGS: [&'static str; 22] = [
   "--disable-background-networking",
@@ -51,7 +56,7 @@ pub struct LaunchOptions {
     pub timeout: i32,
     pub dumpio: bool,
     pub user_data_dir: Option<String>,
-    pub env: Vec<(String, String)>,
+    pub env: HashMap<String, String>,
     pub devtools: bool,
     pub pipe: bool,
 }
@@ -69,7 +74,7 @@ impl LaunchOptions {
             timeout: 30000,
             dumpio: false,
             user_data_dir: None,
-            env: Vec::new(),
+            env: HashMap::new(),
             devtools: false,
             pipe: false,
         }
@@ -103,10 +108,7 @@ impl Launcher {
     }
 
     pub async fn launch<'a>(&'a self, options: &'a LaunchOptions) -> Browser {
-
-        let mut chrome_arguments: Vec<String> = options.args
-            .clone()
-            .append(&mut DEFAULT_ARGS.clone());
+        let mut chrome_arguments = Launcher::initial_arguments();
 
         // Ensure remote debugging argument is set
         if !has("--remote-debugging", &chrome_arguments) {
@@ -119,42 +121,59 @@ impl Launcher {
           chrome_arguments.push(debug_argument);
         }
 
-        /*
         // Ensure user data dir argument is set
         let mut temporary_user_data_dir;
-        if !has("--user-data-dir", chrome_arguments) {
-          temporary_user_data_dir = await!(mkdtempAsync(CHROME_PROFILE_PATH));
+        if !has("--user-data-dir", &chrome_arguments) {
+          let id: String = rand::thread_rng()
+              .sample_iter(&Alphanumeric)
+              .take(6)
+              .collect();
+
+          temporary_user_data_dir = env::temp_dir();
+          temporary_user_data_dir.push(format!("puppeteer_dev_profile-{}", id));
+          let user_data_dir = temporary_user_data_dir.to_str().unwrap();
           chrome_arguments.push(format!(
             "--user-data-dir={}",
-            temporary_user_data_dir
+            &user_data_dir
           ));
+          fs::create_dir_all(&user_data_dir).unwrap();
         }
-        */
 
         // Get executable
-        let mut chrome_executable = options.executable_path.clone();
-        if chrome_executable.is_none() {
-          let path = self.resolve_executable_path();
-          info!("Executable located: {}", &path);
-          chrome_executable = Some(path);
+        let chrome_executable = options
+            .executable_path
+            .clone()
+            .unwrap_or_else(|| {
+              let path = self.resolve_executable_path();
+              info!("Executable located: {}", &path);
+              path
+            });
 
-          //const {missingText, executablePath} = this._resolveExecutablePath();
-          //if (missingText)
-          //  throw new Error(missingText);
-          //chromeExecutable = executablePath;
+        let child = Command::new(&chrome_executable)
+            .args(&chrome_arguments)
+            .envs(&options.env)
+            .spawn()
+            .expect("failed to execute child");
+
+        //let ecode = child.wait()
+        //         .expect("failed to wait on child");
+
+
+        // TODO Remove temp dir
+
+        Browser {
+            child_process: child
+        }
+    }
+
+    fn initial_arguments() -> Vec<String> {
+        let mut chrome_arguments = Vec::new();
+
+        for arg in DEFAULT_ARGS.iter() {
+            chrome_arguments.push(arg.to_string());
         }
 
-        let mut child = Command::new(&chrome_executable.unwrap())
-                        .args(&chrome_arguments)
-                        .envs(&options.env)
-                        .spawn()
-                        .expect("failed to execute child");
-
-        let ecode = child.wait()
-                 .expect("failed to wait on child");
-
-
-        Browser {}
+        return chrome_arguments;
     }
 
     fn resolve_executable_path(&self) -> String {

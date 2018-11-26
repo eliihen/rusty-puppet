@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn test_launch() {
         let handle = Handle::new();
-        let browser = block_on(handle.launch());
+        let mut browser = block_on(handle.launch());
         block_on(browser.close());
     }
 }
