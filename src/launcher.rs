@@ -1,37 +1,41 @@
 use crate::browser::Browser;
-use std::env;
-use std::path::Path;
-use std::collections::HashMap;
-use std::process::Command;
-use rand::Rng;
-use rand::distributions::Alphanumeric;
+use crate::connection::Connection;
+use crate::websocket::WebSocketTransport;
 use rand;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
+use regex::Regex;
+use std::collections::HashMap;
+use std::env;
 use std::fs;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::process::{Child, ChildStderr, Command, Stdio};
 
 const DEFAULT_ARGS: [&'static str; 22] = [
-  "--disable-background-networking",
-  "--disable-background-timer-throttling",
-  "--disable-backgrounding-occluded-windows",
-  "--disable-breakpad",
-  "--disable-client-side-phishing-detection",
-  "--disable-default-apps",
-  "--disable-dev-shm-usage",
-  "--disable-extensions",
-  // TODO: Support OOOPIF. @see https://github.com/GoogleChrome/puppeteer/issues/2548
-  "--disable-features=site-per-process",
-  "--disable-hang-monitor",
-  "--disable-ipc-flooding-protection",
-  "--disable-popup-blocking",
-  "--disable-prompt-on-repost",
-  "--disable-renderer-backgrounding",
-  "--disable-sync",
-  "--disable-translate",
-  "--metrics-recording-only",
-  "--no-first-run",
-  "--safebrowsing-disable-auto-update",
-  "--enable-automation",
-  "--password-store=basic",
-  "--use-mock-keychain",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-breakpad",
+    "--disable-client-side-phishing-detection",
+    "--disable-default-apps",
+    "--disable-dev-shm-usage",
+    "--disable-extensions",
+    // TODO: Support OOOPIF. @see https://github.com/GoogleChrome/puppeteer/issues/2548
+    "--disable-features=site-per-process",
+    "--disable-hang-monitor",
+    "--disable-ipc-flooding-protection",
+    "--disable-popup-blocking",
+    "--disable-prompt-on-repost",
+    "--disable-renderer-backgrounding",
+    "--disable-sync",
+    "--disable-translate",
+    "--metrics-recording-only",
+    "--no-first-run",
+    "--safebrowsing-disable-auto-update",
+    "--enable-automation",
+    "--password-store=basic",
+    "--use-mock-keychain",
 ];
 
 #[derive(Debug)]
@@ -49,11 +53,11 @@ pub struct LaunchOptions {
     pub ignore_https_errors: bool,
     pub headless: bool,
     pub executable_path: Option<String>,
-    pub slow_mo: i32,
+    pub slow_mo: u32,
     pub default_viewport: Option<Viewport>,
     pub args: Vec<String>,
     pub ignore_default_args: bool,
-    pub timeout: i32,
+    pub timeout: u32,
     pub dumpio: bool,
     pub user_data_dir: Option<String>,
     pub env: HashMap<String, String>,
@@ -96,9 +100,7 @@ fn has(needle: &str, haystack: &Vec<String>) -> bool {
 
 impl Launcher {
     pub fn new() -> Launcher {
-        Launcher {
-            project_root: None,
-        }
+        Launcher { project_root: None }
     }
 
     pub fn from_root(project_root: String) -> Launcher {
@@ -112,68 +114,76 @@ impl Launcher {
 
         // Ensure remote debugging argument is set
         if !has("--remote-debugging", &chrome_arguments) {
-          let debug_argument = if options.pipe {
-              String::from("--remote-debugging-pipe")
-          } else {
-              String::from("--remote-debugging-port=0")
-          };
-          info!("Debug argument set: {}", &debug_argument);
-          chrome_arguments.push(debug_argument);
+            let debug_argument = if options.pipe {
+                String::from("--remote-debugging-pipe")
+            } else {
+                String::from("--remote-debugging-port=0")
+            };
+            info!("Debug argument set: {}", &debug_argument);
+            chrome_arguments.push(debug_argument);
         }
 
         // Ensure user data dir argument is set
         let mut temporary_user_data_dir;
         if !has("--user-data-dir", &chrome_arguments) {
-          let id: String = rand::thread_rng()
-              .sample_iter(&Alphanumeric)
-              .take(6)
-              .collect();
+            let id: String = rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(6)
+                .collect();
 
-          temporary_user_data_dir = env::temp_dir();
-          temporary_user_data_dir.push(format!("puppeteer_dev_profile-{}", id));
-          let user_data_dir = temporary_user_data_dir.to_str().unwrap();
-          chrome_arguments.push(format!(
-            "--user-data-dir={}",
-            &user_data_dir
-          ));
-          fs::create_dir_all(&user_data_dir).unwrap();
+            temporary_user_data_dir = env::temp_dir();
+            temporary_user_data_dir.push(format!("puppeteer_dev_profile-{}", id));
+            let user_data_dir = temporary_user_data_dir.to_str().unwrap();
+            chrome_arguments.push(format!("--user-data-dir={}", &user_data_dir));
+            fs::create_dir_all(&user_data_dir).unwrap();
         }
 
         // Get executable
-        let chrome_executable = options
-            .executable_path
-            .clone()
-            .unwrap_or_else(|| {
-              let path = self.resolve_executable_path();
-              info!("Executable located: {}", &path);
-              path
-            });
+        let chrome_executable = options.executable_path.clone().unwrap_or_else(|| {
+            let path = self.resolve_executable_path();
+            info!("Executable located: {}", &path);
+            path
+        });
 
-        let child = Command::new(&chrome_executable)
+        let mut child = Command::new(&chrome_executable)
             .args(&chrome_arguments)
             .envs(&options.env)
+            .stderr(Stdio::piped())
             .spawn()
             .expect("failed to execute child");
 
         //let ecode = child.wait()
         //         .expect("failed to wait on child");
 
+        let stderr = child.stderr.take().unwrap();
+        let browser_WS_endpoint = Launcher::wait_for_WS_endpoint(
+            stderr,
+            options.timeout,
+            // this._preferredRevision
+        );
+        let transport = WebSocketTransport::new(browser_WS_endpoint);
+        /*
+        let connection = Connection::new(
+            // browser_WS_endpoint, transport, options.slow_mo
+        );
 
+        let browser = Browser::new(
+            //connection,
+            // [],
+            // ignoreHTTPSErrors,
+            // defaultViewport,
+            // child,
+            // gracefullyCloseChrome
+        );
+        // TODO await!(ensureInitialPage(browser));
+            //
         // TODO Remove temp dir
 
+        browser
+        */
         Browser {
-            child_process: child
+            child_process: child,
         }
-    }
-
-    fn initial_arguments() -> Vec<String> {
-        let mut chrome_arguments = Vec::new();
-
-        for arg in DEFAULT_ARGS.iter() {
-            chrome_arguments.push(arg.to_string());
-        }
-
-        return chrome_arguments;
     }
 
     fn resolve_executable_path(&self) -> String {
@@ -204,5 +214,34 @@ impl Launcher {
             .to_str()
             .expect("Failed to unwrap path to chrome executable")
             .to_string()
+    }
+
+    fn initial_arguments() -> Vec<String> {
+        let mut chrome_arguments = Vec::new();
+
+        for arg in DEFAULT_ARGS.iter() {
+            chrome_arguments.push(arg.to_string());
+        }
+
+        return chrome_arguments;
+    }
+
+    fn wait_for_WS_endpoint(stderr: ChildStderr, timeout: u32) -> String {
+        let stderr = BufReader::new(stderr);
+
+        // TODO timeout
+
+        for line in stderr.lines() {
+            if let Ok(line) = line {
+                let regex = Regex::new(r"^DevTools listening on (ws://.*)$").unwrap();
+                let captures = regex.captures(&line);
+
+                if let Some(captures) = captures {
+                    return String::from(captures.get(1).unwrap().as_str());
+                }
+            }
+        }
+
+        panic!("Failed to launch Chromium!");
     }
 }
