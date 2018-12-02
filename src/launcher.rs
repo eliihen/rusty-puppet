@@ -1,6 +1,6 @@
 use crate::browser::Browser;
 use crate::connection::Connection;
-use crate::websocket::WebSocketTransport;
+use crate::ws::{Response, WebSocketTransport};
 use rand;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -145,6 +145,12 @@ impl Launcher {
             path
         });
 
+        info!(
+            "Running chrome with {:?} {} {}",
+            &options.env,
+            &chrome_executable,
+            &chrome_arguments.join(" ")
+        );
         let mut child = Command::new(&chrome_executable)
             .args(&chrome_arguments)
             .envs(&options.env)
@@ -152,38 +158,28 @@ impl Launcher {
             .spawn()
             .expect("failed to execute child");
 
-        //let ecode = child.wait()
-        //         .expect("failed to wait on child");
-
-        let stderr = child.stderr.take().unwrap();
-        let browser_WS_endpoint = Launcher::wait_for_WS_endpoint(
-            stderr,
+        let browser_ws_endpoint = Launcher::wait_for_ws_endpoint(
+            child.stderr.take().unwrap(),
             options.timeout,
             // this._preferredRevision
         );
-        let transport = WebSocketTransport::new(browser_WS_endpoint);
-        /*
-        let connection = Connection::new(
-            // browser_WS_endpoint, transport, options.slow_mo
-        );
+        let transport = WebSocketTransport::new(browser_ws_endpoint.clone());
+        let connection = Connection::new(browser_ws_endpoint, transport, options.slow_mo);
 
         let browser = Browser::new(
-            //connection,
+            connection,
             // [],
             // ignoreHTTPSErrors,
             // defaultViewport,
-            // child,
+            child,
             // gracefullyCloseChrome
         );
-        // TODO await!(ensureInitialPage(browser));
-            //
+
+        //await!(Launcher::ensure_initial_page(browser));
+
         // TODO Remove temp dir
 
         browser
-        */
-        Browser {
-            child_process: child,
-        }
     }
 
     fn resolve_executable_path(&self) -> String {
@@ -226,7 +222,7 @@ impl Launcher {
         return chrome_arguments;
     }
 
-    fn wait_for_WS_endpoint(stderr: ChildStderr, timeout: u32) -> String {
+    fn wait_for_ws_endpoint(stderr: ChildStderr, timeout: u32) -> String {
         let stderr = BufReader::new(stderr);
 
         // TODO timeout
@@ -242,6 +238,24 @@ impl Launcher {
             }
         }
 
-        panic!("Failed to launch Chromium!");
+        panic!("Failed to launch Chromium! Ensure the chrome sandbox is setup properly");
     }
+
+    /*
+    async fn ensure_initial_page(browser: Browser) {
+      // Wait for initial page target to be created.
+      if (browser.targets().find(target => target.type() === "page"))
+        return;
+
+      let initialPageCallback;
+      const initialPagePromise = new Promise(resolve => initialPageCallback = resolve);
+      const listeners = [helper.addEventListener(browser, "targetcreated", target => {
+        if (target.type() === "page")
+          initialPageCallback();
+      })];
+
+      await initialPagePromise;
+      helper.removeEventListeners(listeners);
+    }
+    */
 }

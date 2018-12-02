@@ -10,9 +10,15 @@ rand = "0.6.1"
 regex = "1"
 log = "0.4.6"
 futures-preview = "0.3.0-alpha.9"
-ws = "0.7.9"
+serde_json = "1.0.33"
+serde_derive = "1.0.80"
+serde = "1.0.80"
+websocket = "0.21.1"
 
 [build-dependencies]
 lazy_static = "1.2.0"
 reqwest = "0.9.5"
 zip = "0.5.0"
+
+[dev-dependencies]
+env_logger = "0.6.0"

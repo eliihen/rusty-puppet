@@ -49,16 +49,22 @@ impl Handle {
 
 #[cfg(test)]
 mod tests {
+    extern crate env_logger;
+
     use crate::handle::Handle;
     use futures::executor::block_on;
 
     #[test]
     fn test_construct_no_throw() {
+        let _ = env_logger::try_init();
+
         Handle::new();
     }
 
     #[test]
     fn test_launch() {
+        let _ = env_logger::try_init();
+
         let handle = Handle::new();
         let mut browser = block_on(handle.launch());
         block_on(browser.close());
@@ -67,6 +73,8 @@ mod tests {
     #[test]
     #[ignore]
     fn test_page_goto() {
+        let _ = env_logger::try_init();
+
         let handle = Handle::new();
         let mut browser = block_on(handle.launch());
         let page = browser.new_page();
